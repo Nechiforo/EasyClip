@@ -1,0 +1,9 @@
+{
+  "name": "EasyClip",
+  "description": "High-performance video clipping and editing suite with instant replay buffer and precision timeline.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": []
+}
