@@ -15,6 +15,8 @@ import {
   Play, 
   Pause,
   RotateCcw,
+  SkipBack,
+  SkipForward,
   Volume2,
   Layers,
   Type,
@@ -60,6 +62,7 @@ export default function App() {
   const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
+  const [totalDuration, setTotalDuration] = useState(10); // Default 10s
   const [exportRatio, setExportRatio] = useState<AspectRatio>('16:9');
   const [filters, setFilters] = useState({
     brightness: 100,
@@ -152,6 +155,38 @@ export default function App() {
 
   const t = (key: keyof typeof translations['en']) => {
     return translations[language][key] || translations['en'][key];
+  };
+
+  // Calculate total duration based on clips
+  useEffect(() => {
+    const maxClipEnd = clips.reduce((max, clip) => Math.max(max, clip.startTime + clip.duration), 0);
+    const maxAudioEnd = audioTracks.reduce((max, track) => {
+      const trackMax = track.clips.reduce((tm, clip) => Math.max(tm, clip.startTime + (clip.duration / 1000)), 0);
+      return Math.max(max, trackMax);
+    }, 0);
+    setTotalDuration(Math.max(10, maxClipEnd, maxAudioEnd));
+  }, [clips, audioTracks]);
+
+  // Global playback timer
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (isPlaying) {
+      interval = setInterval(() => {
+        setCurrentTime(prev => {
+          if (prev >= totalDuration) {
+            setIsPlaying(false);
+            return totalDuration;
+          }
+          return prev + 0.1; // Increment by 100ms
+        });
+      }, 100);
+    }
+    return () => clearInterval(interval);
+  }, [isPlaying, totalDuration]);
+
+  const seekTo = (time: number) => {
+    const newTime = Math.max(0, Math.min(time, totalDuration));
+    setCurrentTime(newTime);
   };
 
   // History management
@@ -375,6 +410,49 @@ export default function App() {
     }
   };
 
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    const files = Array.from(e.dataTransfer.files);
+    for (const file of files as File[]) {
+      if (file.type.startsWith('video/') || file.type.startsWith('audio/')) {
+        const type = file.type.startsWith('video/') ? 'video' : 'audio';
+        const url = URL.createObjectURL(file);
+        
+        // Add to library
+        addToLibrary(type, { url, name: file.name, duration: 5, thumbnail: undefined });
+        
+        // Add directly to timeline at current position
+        if (type === 'video') {
+          const newClip: VideoClip = {
+            id: `clip-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+            url,
+            blob: file as Blob,
+            duration: 5, // Defaulting to 5s if we can't get metadata easily synchronously
+            startTime: currentTime,
+            filters: { ...filters },
+            name: file.name
+          };
+          setClips(prev => [...prev, newClip]);
+        } else {
+          const newAudio: AudioClip = {
+            id: `audio-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+            url,
+            blob: file as Blob,
+            duration: 5000,
+            startTime: currentTime,
+            name: file.name,
+            volume: 100
+          };
+          setAudioTracks(prev => prev.map((t, i) => i === 0 ? { ...t, clips: [...t.clips, newAudio] } : t));
+        }
+      }
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+  };
+
   const handleLibraryUpload = (e: React.ChangeEvent<HTMLInputElement>, type: 'video' | 'audio') => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -491,7 +569,7 @@ export default function App() {
     setPreviewKey(prev => prev + 1);
   }, [globalTransition, transitionDuration]);
   
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const timelineRef = useRef<HTMLDivElement>(null);
   const previewContainerRef = useRef<HTMLDivElement>(null);
 
   // Handle instant clip
@@ -814,7 +892,11 @@ export default function App() {
         </aside>
 
         {/* Central Work Area */}
-        <section className="flex-1 flex flex-col bg-black/20">
+        <section 
+          className="flex-1 flex flex-col bg-black/20"
+          onDragOver={handleDragOver}
+          onDrop={handleDrop}
+        >
           {/* Preview Area */}
           <div className="flex-1 relative flex items-center justify-center p-8 bg-black">
             <div 
@@ -968,19 +1050,39 @@ export default function App() {
               <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-6 bg-black/60 backdrop-blur px-6 py-3 rounded-full border border-white/10">
                 <button 
                   onClick={() => {
-                    setCurrentTime(0);
-                    if (videoRef.current) videoRef.current.currentTime = 0;
+                    seekTo(0);
                   }}
                   className="text-white/60 hover:text-white transition-colors"
+                  title="Reset"
                 >
                   <RotateCcw className="w-4 h-4 translate-y-[2px]" />
                 </button>
-                <button 
-                  onClick={() => setIsPlaying(!isPlaying)}
-                  className="w-10 h-10 bg-white rounded-full flex items-center justify-center text-black hover:scale-110 active:scale-95 transition-all"
-                >
-                   {isPlaying ? <Pause className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 fill-current" />}
-                </button>
+                <div className="flex items-center gap-3">
+                  <button 
+                    onClick={() => seekTo(currentTime - 5)}
+                    className="text-white/60 hover:text-white transition-colors p-1"
+                    title="Skip Backward 5s"
+                  >
+                    <motion.div whileTap={{ scale: 0.9 }}>
+                      <SkipBack className="w-4 h-4" />
+                    </motion.div>
+                  </button>
+                  <button 
+                    onClick={() => setIsPlaying(!isPlaying)}
+                    className="w-10 h-10 bg-white rounded-full flex items-center justify-center text-black hover:scale-110 active:scale-95 transition-all shadow-[0_0_20px_rgba(255,255,255,0.2)]"
+                  >
+                    {isPlaying ? <Pause className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 fill-current ml-0.5" />}
+                  </button>
+                  <button 
+                    onClick={() => seekTo(currentTime + 5)}
+                    className="text-white/60 hover:text-white transition-colors p-1"
+                    title="Skip Forward 5s"
+                  >
+                    <motion.div whileTap={{ scale: 0.9 }}>
+                      <SkipForward className="w-4 h-4" />
+                    </motion.div>
+                  </button>
+                </div>
                 <p className="font-mono text-xs tracking-widest text-brand-primary w-20 text-center">{formatTime(currentTime)}</p>
                 <button className="text-white/60 hover:text-white transition-colors"><Maximize2 className="w-4 h-4" /></button>
               </div>
@@ -988,10 +1090,31 @@ export default function App() {
           </div>
 
           {/* Timeline Section */}
-          <div className="h-64 border-t border-border-subtle bg-bg-panel/40 flex flex-col relative">
+          <div 
+            className="h-64 border-t border-border-subtle bg-bg-panel/40 flex flex-col relative"
+            onDragOver={handleDragOver}
+            onDrop={handleDrop}
+          >
              <div className="h-8 border-b border-border-subtle flex items-center px-4 justify-between bg-black/20">
                 <div className="flex items-center gap-4">
                   <span className="text-[10px] font-bold font-mono text-white/40 uppercase tracking-widest">{t('timeline')}</span>
+                  <div className="flex items-center gap-2 ml-4">
+                    <button 
+                      onClick={() => seekTo(0)} 
+                      className="p-1 hover:bg-white/10 rounded transition-colors text-white/40 hover:text-white"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                    </button>
+                    <button 
+                      onClick={() => setIsPlaying(!isPlaying)} 
+                      className="p-1 hover:bg-white/10 rounded transition-colors text-white/40 hover:text-white"
+                    >
+                      {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+                    </button>
+                    <span className="text-[9px] font-mono text-brand-primary tracking-tighter">
+                      {formatTime(currentTime)} / {formatTime(totalDuration)}
+                    </span>
+                  </div>
                 </div>
                 <div className="flex items-center gap-2">
                    <button className="p-1 hover:bg-white/10 rounded"><Plus className="w-4 h-4 text-white/60" /></button>
@@ -999,11 +1122,40 @@ export default function App() {
              </div>
              
              {/* Timeline Tracks */}
-             <div className="flex-1 overflow-x-auto overflow-y-hidden custom-scrollbar relative">
+             <div 
+               ref={timelineRef}
+               className="flex-1 overflow-x-auto overflow-y-hidden custom-scrollbar relative"
+               onClick={(e) => {
+                 if ((e.target as HTMLElement).closest('.timeline-marker')) return;
+                 const rect = e.currentTarget.getBoundingClientRect();
+                 const x = e.clientX - rect.left - 96; // 96 is the sidebar width (w-24)
+                 if (x >= 0) {
+                   const timelineWidth = e.currentTarget.offsetWidth - 96;
+                   seekTo((x / timelineWidth) * totalDuration);
+                 }
+               }}
+             >
                 {/* Playhead */}
-                <div className="absolute top-0 bottom-0 left-0 w-px bg-brand-primary z-50 timeline-marker" style={{ left: '15%' }}>
-                   <div className="w-3 h-3 bg-brand-primary rotate-45 -translate-x-[6px] -translate-y-[6px]" />
-                </div>
+                <motion.div 
+                  className="absolute top-0 bottom-0 w-px bg-brand-primary z-50 timeline-marker cursor-ew-resize group" 
+                  style={{ left: `${(currentTime / totalDuration) * 100}%`, marginLeft: '96px' }}
+                  drag="x"
+                  dragConstraints={timelineRef}
+                  dragMomentum={false}
+                  dragElastic={0}
+                  onDragStart={() => setIsPlaying(false)}
+                  onDrag={(_, info) => {
+                    const rect = timelineRef.current?.getBoundingClientRect();
+                    if (rect) {
+                      const timelineWidth = rect.width - 96;
+                      const x = _.clientX - rect.left - 96;
+                      seekTo((x / timelineWidth) * totalDuration);
+                    }
+                  }}
+                >
+                   <div className="w-3 h-3 bg-brand-primary rotate-45 -translate-x-[6px] -translate-y-[6px] shadow-[0_0_10px_rgba(0,255,0,0.5)]" />
+                   <div className="absolute top-0 bottom-0 -left-2 -right-2 hidden group-hover:block" />
+                </motion.div>
 
                 <div className="flex flex-col h-full py-4 gap-2">
                    <TimelineTrack 
@@ -1011,7 +1163,8 @@ export default function App() {
                       clips={clips} 
                       onSelect={(id) => setSelectedClipId(id)} 
                       selectedId={selectedClipId} 
-                      onDelete={deleteClip} 
+                      onDelete={deleteClip}
+                      totalDuration={totalDuration}
                    />
                    
                    {audioTracks.map((track) => (
@@ -1025,6 +1178,7 @@ export default function App() {
                         onDelete={(clipId) => removeAudioClip(track.id, clipId)}
                         onAdd={() => addPlaceholderAudio(track.id)}
                         onRemoveTrack={() => removeAudioTrack(track.id)}
+                        totalDuration={totalDuration}
                       />
                    ))}
 
@@ -1823,10 +1977,10 @@ interface TimelineTrackProps {
   type?: 'video' | 'audio';
 }
 
-const TimelineTrack: React.FC<TimelineTrackProps> = ({ label, clips = [], selectedId, onSelect, onDelete, onAdd, onRemoveTrack, type = 'video' }) => {
+const TimelineTrack: React.FC<TimelineTrackProps & { totalDuration: number }> = ({ label, clips = [], selectedId, onSelect, onDelete, onAdd, onRemoveTrack, type = 'video', totalDuration }) => {
   return (
     <div className="flex items-center group h-16 min-w-full relative">
-      <div className="w-24 flex-shrink-0 flex items-center justify-between px-2 border-r border-border-subtle bg-black/20 h-full">
+      <div className="w-24 flex-shrink-0 flex items-center justify-between px-2 border-r border-border-subtle bg-black/20 h-full z-10">
         <span className="text-[9px] font-bold uppercase text-white/30 vertical-text">{label}</span>
         <div className="flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
           {onAdd && (
@@ -1841,46 +1995,56 @@ const TimelineTrack: React.FC<TimelineTrackProps> = ({ label, clips = [], select
           )}
         </div>
       </div>
-      <div className="flex-1 flex gap-1 p-1 h-full items-center relative overflow-x-auto min-w-0">
-        {clips.map((clip) => (
-          <motion.div
-            layoutId={clip.id}
-            key={clip.id}
-            onClick={() => onSelect?.(clip.id)}
-            className={cn(
-              "h-full rounded border relative cursor-pointer group/clip overflow-hidden transition-all flex-shrink-0",
-              type === 'video' ? "w-48" : "w-32",
-              selectedId === clip.id 
-                ? (type === 'video' ? "bg-brand-primary/20 border-brand-primary" : "bg-blue-500/20 border-blue-500") 
-                : "bg-white/5 border-white/10 hover:border-white/30",
-            )}
-          >
-             <div className="absolute top-1 right-1 opacity-0 group-hover/clip:opacity-100 transition-opacity">
-                <button 
-                  onClick={(e) => { e.stopPropagation(); onDelete?.(clip.id); }}
-                  className="p-1 bg-black/60 rounded hover:text-brand-error"
-                >
-                  <Trash2 className="w-3 h-3" />
-                </button>
-             </div>
-             {clip.keyframes && Object.values(clip.keyframes).some(arr => (arr as any[]).length > 0) && (
-                <div className="absolute top-1 left-2 pointer-events-none">
-                  <Diamond className="w-2 h-2 text-brand-primary fill-brand-primary" />
-                </div>
-             )}
-             <div className="absolute inset-x-2 bottom-1 flex justify-between items-end">
-                <span className="text-[8px] font-mono text-white/40">{clip.name ? clip.name : `CLIP_${clip.id.slice(0, 4)}`}</span>
-                <span className={cn("text-[8px] font-mono", type === 'video' ? "text-brand-primary" : "text-blue-400")}>
-                  {formatTime(clip.duration || 5000)}
-                </span>
-             </div>
-             {type === 'audio' && (
-                <div className="absolute inset-0 flex items-center justify-center opacity-10">
-                  <Music className="w-8 h-8" />
-                </div>
-             )}
-          </motion.div>
-        ))}
+      <div className="flex-1 h-full items-center relative overflow-x-hidden min-w-0 bg-white/[0.02]">
+        {clips.map((clip) => {
+          const duration = type === 'video' ? clip.duration : (clip.duration / 1000);
+          const width = (duration / totalDuration) * 100;
+          const left = (clip.startTime / totalDuration) * 100;
+
+          return (
+            <motion.div
+              layoutId={clip.id}
+              key={clip.id}
+              onClick={(e) => { e.stopPropagation(); onSelect?.(clip.id); }}
+              style={{ 
+                left: `${left}%`, 
+                width: `${width}%`,
+                position: 'absolute'
+              }}
+              className={cn(
+                "h-[80%] top-[10%] rounded border cursor-pointer group/clip overflow-hidden transition-all",
+                selectedId === clip.id 
+                  ? (type === 'video' ? "bg-brand-primary/20 border-brand-primary z-20" : "bg-blue-500/20 border-blue-500 z-20") 
+                  : "bg-white/5 border-white/10 hover:border-white/30 z-10",
+              )}
+            >
+               <div className="absolute top-1 right-1 opacity-0 group-hover/clip:opacity-100 transition-opacity">
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); onDelete?.(clip.id); }}
+                    className="p-1 bg-black/60 rounded hover:text-brand-error"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+               </div>
+               {clip.keyframes && Object.values(clip.keyframes).some(arr => (arr as any[]).length > 0) && (
+                  <div className="absolute top-1 left-2 pointer-events-none">
+                    <Diamond className="w-2 h-2 text-brand-primary fill-brand-primary" />
+                  </div>
+               )}
+               <div className="absolute inset-x-2 bottom-1 flex justify-between items-end">
+                  <span className="text-[8px] font-mono text-white/40 truncate mr-2">{clip.name ? clip.name : `CLIP_${clip.id.slice(0, 4)}`}</span>
+                  <span className={cn("text-[8px] font-mono whitespace-nowrap", type === 'video' ? "text-brand-primary" : "text-blue-400")}>
+                    {formatTime(duration)}
+                  </span>
+               </div>
+               {type === 'audio' && (
+                  <div className="absolute inset-0 flex items-center justify-center opacity-10">
+                    <Music className="w-8 h-8" />
+                  </div>
+               )}
+            </motion.div>
+          );
+        })}
         {clips.length === 0 && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-5">
             <span className="text-[10px] font-mono uppercase tracking-[0.5em]">{type === 'video' ? 'Empty Video Track' : 'Empty Audio Track'}</span>
@@ -1889,7 +2053,7 @@ const TimelineTrack: React.FC<TimelineTrackProps> = ({ label, clips = [], select
       </div>
     </div>
   );
-}
+};
 
 function PropertySlider({ 
   label, 
