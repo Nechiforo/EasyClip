@@ -7,7 +7,7 @@ export interface TextOverlay {
   y: number;
   fontSize: number;
   color: string;
-  fontFamily: 'sans' | 'mono' | 'serif';
+  fontFamily: string;
   type?: 'text' | 'sticker';
   assetUrl?: string;
 }

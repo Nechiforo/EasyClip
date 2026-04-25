@@ -82,6 +82,17 @@ export interface TranslationSet {
   smooth: string;
   blur: string;
   opacity: string;
+  font: string;
+  replayDuration: string;
+  wheelZoom: string;
+  volume: string;
+  masterVolume: string;
+  mute: string;
+  unmute: string;
+  showOverlay: string;
+  showTimer: string;
+  floatingControls: string;
+  dragToReposition: string;
 }
 
 // Russian split out for brevity in the main object
@@ -161,7 +172,16 @@ const RussianTranslations: TranslationSet = {
   assets: 'Ассеты',
   smooth: 'Сглаживание',
   blur: 'Размытие',
-  opacity: 'Прозрачность'
+  opacity: 'Прозрачность',
+  font: 'Шрифт',
+  replayDuration: 'Длительность повтора',
+  wheelZoom: 'Зум колесиком мыши',
+  volume: 'Громкость',
+  masterVolume: 'Общая громкость',
+  mute: 'Выключить звук',
+  unmute: 'Включить звук',
+  showOverlay: 'Контрольный оверлей',
+  showTimer: 'Показывать таймер в оверлее'
 };
 
 export const translations: Record<LanguageCode, TranslationSet> = {
@@ -241,7 +261,18 @@ export const translations: Record<LanguageCode, TranslationSet> = {
     assets: 'Assets',
     smooth: 'Smooth',
     blur: 'Blur',
-    opacity: 'Opacity'
+    opacity: 'Opacity',
+    font: 'Font',
+    replayDuration: 'Replay Duration',
+    wheelZoom: 'Mouse Wheel Zoom',
+    volume: 'Volume',
+    masterVolume: 'Master Volume',
+    mute: 'Mute',
+    unmute: 'Unmute',
+    showOverlay: 'Control Overlay',
+    showTimer: 'Show Timer in Overlay',
+    floatingControls: 'Floating Controls',
+    dragToReposition: 'DRAG TO REPOSITION'
   },
   zh: {
     title: 'EasyClip',
@@ -319,7 +350,16 @@ export const translations: Record<LanguageCode, TranslationSet> = {
     assets: '素材',
     smooth: '平滑',
     blur: '模糊',
-    opacity: '不透明度'
+    opacity: '不透明度',
+    font: '字体',
+    replayDuration: '录制时长',
+    wheelZoom: '鼠标滚轮缩放',
+    volume: '音量',
+    masterVolume: '主音量',
+    mute: '静音',
+    unmute: '取消静音',
+    showOverlay: '控制悬浮窗',
+    showTimer: '在悬浮窗中显示计时器'
   },
   hi: {
     title: 'EasyClip',
@@ -397,7 +437,16 @@ export const translations: Record<LanguageCode, TranslationSet> = {
     assets: 'एसेट्स',
     smooth: 'स्मूथ',
     blur: 'ब्लर',
-    opacity: 'अपारदर्शिता'
+    opacity: 'अपारदर्शिता',
+    font: 'फ़ॉन्ट',
+    replayDuration: 'रीप्ले अवधि',
+    wheelZoom: 'माउस व्हील ज़ूम',
+    volume: 'आवाज़',
+    masterVolume: 'मास्टर आवाज़',
+    mute: 'म्यूट करें',
+    unmute: 'अनम्यूट करें',
+    showOverlay: 'कंट्रोल ओवरले',
+    showTimer: 'ओवरले में टाइमर दिखाएं'
   },
   es: {
     title: 'EasyClip',
@@ -475,7 +524,18 @@ export const translations: Record<LanguageCode, TranslationSet> = {
     assets: 'Recursos',
     smooth: 'Suavizar',
     blur: 'Difuminar',
-    opacity: 'Opacidad'
+    opacity: 'Opacidad',
+    font: 'Fuente',
+    replayDuration: 'Duración de Replay',
+    wheelZoom: 'Zoom con Rueda de Ratón',
+    volume: 'Volumen',
+    masterVolume: 'Volumen Maestro',
+    mute: 'Silenciar',
+    unmute: 'Activar sonido',
+    showOverlay: 'Control de Superposición',
+    showTimer: 'Mostrar Temporizador',
+    floatingControls: 'Controles Flotantes',
+    dragToReposition: 'ARRASTRAR PARA REUBICAR'
   },
   ar: {
     title: 'EasyClip',
@@ -553,7 +613,16 @@ export const translations: Record<LanguageCode, TranslationSet> = {
     assets: 'الأصول',
     smooth: 'تنعيم',
     blur: 'تمويه',
-    opacity: 'العتامة'
+    opacity: 'العتامة',
+    font: 'الخط',
+    replayDuration: 'مدة الإعادة',
+    wheelZoom: 'تكبير بعجلة الماوس',
+    volume: 'مستوى الصوت',
+    masterVolume: 'مستوى الصوت الرئيسي',
+    mute: 'كتم الصوت',
+    unmute: 'إلغاء كتم الصوت',
+    showOverlay: 'تراكب التحكم',
+    showTimer: 'إظهار المؤقت في التراكب'
   },
   fr: {
     title: 'EasyClip',
@@ -631,7 +700,16 @@ export const translations: Record<LanguageCode, TranslationSet> = {
     assets: 'Ressources',
     smooth: 'Lissage',
     blur: 'Flou',
-    opacity: 'Opacité'
+    opacity: 'Opacité',
+    font: 'Police',
+    replayDuration: 'Durée du Replay',
+    wheelZoom: 'Zoom de la molette',
+    volume: 'Volume',
+    masterVolume: 'Volume principal',
+    mute: 'Muet',
+    unmute: 'Rétablir le son',
+    showOverlay: 'Superposition de contrôle',
+    showTimer: 'Afficher le minuteur'
   },
   bn: {
     title: 'EasyClip',
@@ -709,7 +787,16 @@ export const translations: Record<LanguageCode, TranslationSet> = {
     assets: 'অ্যাসেট',
     smooth: 'স্মুথ',
     blur: 'ব্লার',
-    opacity: 'অস্বচ্ছতা'
+    opacity: 'অস্বচ্ছতা',
+    font: 'ফন্ট',
+    replayDuration: 'রিপ্লে সময়কাল',
+    wheelZoom: 'মাউস হুইল জুম',
+    volume: 'ভলিউম',
+    masterVolume: 'মাস্টার ভলিউম',
+    mute: 'নিঃশব্দ করুন',
+    unmute: 'শব্দ শুনুন',
+    showOverlay: 'কন্ট্রোল ওভারলে',
+    showTimer: 'ওভারলে টাইমার দেখান'
   },
   pt: {
     title: 'EasyClip',
@@ -787,7 +874,16 @@ export const translations: Record<LanguageCode, TranslationSet> = {
     assets: 'Recursos',
     smooth: 'Suave',
     blur: 'Desfocar',
-    opacity: 'Opacidade'
+    opacity: 'Opacidade',
+    font: 'Fonte',
+    replayDuration: 'Duração do Replay',
+    wheelZoom: 'Zoom da Roda do Mouse',
+    volume: 'Volume',
+    masterVolume: 'Volume Mestre',
+    mute: 'Mudo',
+    unmute: 'Ativar som',
+    showOverlay: 'Sobreposição de Controle',
+    showTimer: 'Mostrar Temporizador'
   },
   ru: RussianTranslations, // defined below for cleaner code
   id: {
@@ -866,6 +962,15 @@ export const translations: Record<LanguageCode, TranslationSet> = {
     assets: 'Aset',
     smooth: 'Halus',
     blur: 'Kabur',
-    opacity: 'Opasitas'
+    opacity: 'Opasitas',
+    font: 'Font',
+    replayDuration: 'Durasi Replay',
+    wheelZoom: 'Mouse Wheel Zoom',
+    volume: 'Volume',
+    masterVolume: 'Master Volume',
+    mute: 'Senyap',
+    unmute: 'Aktifkan Suara',
+    showOverlay: 'Overlay Kontrol',
+    showTimer: 'Tampilkan Timer di Overlay'
   }
 };

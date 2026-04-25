@@ -47,8 +47,25 @@ import { VideoClip, TimelineState, AspectRatio, TransitionType, TextOverlay, Tim
 import { Music, Mic, VolumeX, ListMusic } from 'lucide-react';
 import { translations, LanguageCode, TranslationSet } from './translations';
 
+const FONT_OPTIONS = [
+  'Inter, sans-serif',
+  'Montserrat, sans-serif',
+  'Open Sans, sans-serif',
+  'Lato, sans-serif',
+  'Roboto, sans-serif',
+  'Bebas Neue, sans-serif',
+  'Impact, Charcoal, sans-serif',
+  'Futura, "Trebuchet MS", sans-serif',
+  'Verdana, Geneva, sans-serif',
+  'Arial, Helvetica, sans-serif',
+  'Helvetica, Arial, sans-serif',
+  'Proxima Nova, sans-serif',
+  'JetBrains Mono, monospace'
+];
+
 export default function App() {
-  const { isRecording, startCapture, stopCapture, getBufferBlob, stream } = useReplayBuffer();
+  const [replayBufferDuration, setReplayBufferDuration] = useState(60000); // 1 min default
+  const { isRecording, startCapture, stopCapture, getBufferBlob, stream } = useReplayBuffer(replayBufferDuration);
   const [clips, setClips] = useState<VideoClip[]>([]);
   const [audioTracks, setAudioTracks] = useState<TimelineAudioTrack[]>([
     { id: 'at-1', name: 'Ambient', clips: [], volume: 100 },
@@ -90,8 +107,31 @@ export default function App() {
   const voiceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [recordKey, setRecordKey] = useState<string>('r');
   const [voiceKey, setVoiceKey] = useState<string>('v');
-  const [rebindingKey, setRebindingKey] = useState<'record' | 'voice' | null>(null);
+  const [rebindingKey, setRebindingKey] = useState<'record' | 'voice' | 'instant' | null>(null);
   const [interfaceColor, setInterfaceColor] = useState<string>('#00FF00');
+  const [showOverlay, setShowOverlay] = useState(true);
+  const [showOverlayTimer, setShowOverlayTimer] = useState(true);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Sync recording time
+  useEffect(() => {
+    if (isRecording) {
+      setRecordingTime(0);
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingTime(prev => prev + 100);
+      }, 100);
+    } else {
+      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+      setRecordingTime(0);
+    }
+    return () => {
+      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+    }
+  }, [isRecording]);
+
+  const [instantClipKey, setInstantClipKey] = useState<string>('i');
+  const [useMouseWheelZoom, setUseMouseWheelZoom] = useState(false);
 
   // Update interface color
   useEffect(() => {
@@ -157,6 +197,12 @@ export default function App() {
     return translations[language][key] || translations['en'][key];
   };
 
+  const [isLooping, setIsLooping] = useState(false);
+  const [loopStart, setLoopStart] = useState(0);
+  const [loopEnd, setLoopEnd] = useState(5);
+  const [editingTextId, setEditingTextId] = useState<string | null>(null);
+  const [customFonts, setCustomFonts] = useState<string[]>([]);
+
   // Calculate total duration based on clips
   useEffect(() => {
     const maxClipEnd = clips.reduce((max, clip) => Math.max(max, clip.startTime + clip.duration), 0);
@@ -165,6 +211,9 @@ export default function App() {
       return Math.max(max, trackMax);
     }, 0);
     setTotalDuration(Math.max(10, maxClipEnd, maxAudioEnd));
+    
+    // Update loop end if it's beyond total duration
+    setLoopEnd(prev => Math.min(prev, Math.max(10, maxClipEnd, maxAudioEnd)));
   }, [clips, audioTracks]);
 
   // Global playback timer
@@ -173,16 +222,23 @@ export default function App() {
     if (isPlaying) {
       interval = setInterval(() => {
         setCurrentTime(prev => {
-          if (prev >= totalDuration) {
-            setIsPlaying(false);
-            return 0; // Loop or stop at end
+          const nextTime = prev + 0.033;
+          
+          if (isLooping && nextTime >= loopEnd) {
+            return loopStart;
           }
-          return prev + 0.033; // Increment by ~30fps for smoother motion
+          
+          if (nextTime >= totalDuration) {
+            if (isLooping) return loopStart;
+            setIsPlaying(false);
+            return 0; 
+          }
+          return nextTime;
         });
       }, 33);
     }
     return () => clearInterval(interval);
-  }, [isPlaying, totalDuration]);
+  }, [isPlaying, totalDuration, isLooping, loopStart, loopEnd]);
 
   // Sync video elements with global currentTime and isPlaying
   const videoRefs = useRef<Record<string, HTMLVideoElement>>({});
@@ -544,6 +600,30 @@ export default function App() {
     addToLibrary(type, { url, name: file.name, duration: 5, thumbnail: undefined }); // default 5s for now if duration unknown
   };
 
+  const handleFontUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    const fontName = file.name.split('.')[0].replace(/[^a-zA-Z0-9]/g, '');
+    const reader = new FileReader();
+    
+    reader.onload = (event) => {
+      const dataUrl = event.target?.result as string;
+      const newStyle = document.createElement('style');
+      newStyle.textContent = `
+        @font-face {
+          font-family: '${fontName}';
+          src: url('${dataUrl}');
+        }
+      `;
+      document.head.appendChild(newStyle);
+      setCustomFonts(prev => !prev.includes(fontName) ? [...prev, fontName] : prev);
+      if (selectedTextId) updateTextOverlay(selectedTextId, { fontFamily: fontName });
+    };
+    
+    reader.readAsDataURL(file);
+  };
+
   const selectLibraryItem = (id: string | null) => {
     saveToHistory();
     setSelectedLibraryItemId(id);
@@ -600,6 +680,7 @@ export default function App() {
         }
         if (rebindingKey === 'record') setRecordKey(key);
         else if (rebindingKey === 'voice') setVoiceKey(key);
+        else if (rebindingKey === 'instant') setInstantClipKey(key);
         setRebindingKey(null);
         return;
       }
@@ -621,7 +702,7 @@ export default function App() {
       } else if (e.key.toLowerCase() === 's' && !isMod) {
         e.preventDefault();
         splitClip();
-      } else if (e.key.toLowerCase() === 'i' && !isMod) {
+      } else if (e.key.toLowerCase() === instantClipKey.toLowerCase() && !isMod) {
         e.preventDefault();
         handleInstantClip();
       } else if (e.key.toLowerCase() === recordKey.toLowerCase() && !isMod) {
@@ -645,7 +726,7 @@ export default function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedClipId, activeClip, currentTime, isRecording, clips, history, recordKey, voiceKey, rebindingKey, isRecordingVoice]); // Dependencies for actions
+  }, [selectedClipId, activeClip, currentTime, isRecording, clips, history, recordKey, voiceKey, instantClipKey, rebindingKey, isRecordingVoice]); // Dependencies for actions
 
   // Trigger preview when transition settings change
   useEffect(() => {
@@ -655,19 +736,21 @@ export default function App() {
   const timelineRef = useRef<HTMLDivElement>(null);
   const previewContainerRef = useRef<HTMLDivElement>(null);
 
-  // Handle instant clip
   const handleInstantClip = () => {
     const blob = getBufferBlob();
     if (blob) {
       saveToHistory();
       const url = URL.createObjectURL(blob);
+      const approxDuration = replayBufferDuration / 1000;
       const newClip: VideoClip = {
         id: Math.random().toString(36).substr(2, 9),
         url,
         blob,
-        duration: 0,
-        startTime: clips.reduce((acc, c) => acc + c.duration, 0),
+        duration: approxDuration,
+        startTime: clips.length > 0 ? clips[clips.length - 1].startTime + clips[clips.length - 1].duration : 0,
         textOverlays: [],
+        filters: { ...filters },
+        name: `INSTANT_${new Date().toLocaleTimeString().replace(/:/g, '-')}`
       };
       setClips([...clips, newClip]);
       setSelectedClipId(newClip.id);
@@ -871,25 +954,25 @@ export default function App() {
   const variants = getTransitionVariants();
 
   return (
-    <div className="flex flex-col h-screen bg-bg-dark text-white select-none overflow-hidden font-sans">
+    <div className="flex flex-col h-screen bg-[#050505] text-white select-none overflow-hidden font-sans relative">
       {/* Top Header Bar */}
-      <header className="h-14 border-b border-border-subtle flex items-center justify-between px-6 bg-bg-panel/50 backdrop-blur-md z-50">
+      <header className="h-12 border-b border-white/5 flex items-center justify-between px-4 bg-black/40 backdrop-blur-xl z-[60] shrink-0">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-brand-primary rounded flex items-center justify-center">
-            <Layers className="text-black w-5 h-5" />
+          <div className="w-7 h-7 bg-brand-primary rounded-lg flex items-center justify-center">
+            <Layers className="text-black w-4 h-4" />
           </div>
-          <span className="font-bold tracking-tight text-lg">
+          <span className="font-bold tracking-tight text-base">
             {t('title').split(' ')[0]} 
             {t('title').split(' ')[1] && (
-              <span className="text-brand-primary text-xs uppercase font-mono px-1 border border-brand-primary/30 rounded ml-1">
+              <span className="text-brand-primary text-[10px] uppercase font-mono px-1 border border-brand-primary/30 rounded ml-1">
                 {t('title').split(' ')[1]}
               </span>
             )}
           </span>
         </div>
 
-        <div className="flex items-center gap-4">
-          <div className="flex items-center bg-black/40 rounded-full px-1 py-1 border border-border-subtle">
+        <div className="flex items-center gap-2">
+          <div className="flex items-center bg-white/5 rounded-full px-1 py-1 border border-white/10 scale-90 origin-right">
             {(['16:9', '9:16', '1:1'] as AspectRatio[]).map((ratio) => (
               <button
                 key={ratio}
@@ -907,51 +990,51 @@ export default function App() {
             ))}
           </div>
 
-          <div className="flex items-center gap-1 mx-2">
+          <div className="flex items-center gap-0.5 mx-1">
             <button 
               onClick={undo}
               disabled={history.past.length === 0}
-              className="p-2 text-white/40 hover:text-white disabled:opacity-20 transition-all"
+              className="p-1.5 text-white/40 hover:text-white disabled:opacity-20 transition-all"
               title="Undo"
             >
-              <Undo className="w-4 h-4" />
+              <Undo className="w-3.5 h-3.5" />
             </button>
             <button 
               onClick={redo}
               disabled={history.future.length === 0}
-              className="p-2 text-white/40 hover:text-white disabled:opacity-20 transition-all"
+              className="p-1.5 text-white/40 hover:text-white disabled:opacity-20 transition-all"
               title="Redo"
             >
-              <Redo className="w-4 h-4" />
+              <Redo className="w-3.5 h-3.5" />
             </button>
           </div>
           
           <button 
             onClick={isRecording ? stopCapture : startCapture}
             className={cn(
-              "flex items-center gap-2 px-4 py-1.5 rounded-full font-bold text-xs transition-all border",
+              "flex items-center gap-2 px-3 py-1 rounded-full font-bold text-[10px] transition-all border",
               isRecording 
                 ? "bg-brand-error/10 border-brand-error text-brand-error recording-glow" 
                 : "bg-white/5 border-white/20 hover:bg-white/10"
             )}
           >
-            {isRecording ? <Square className="w-3 h-3 fill-current" /> : <Circle className="w-3 h-3 fill-brand-error" />}
+            {isRecording ? <Square className="w-2.5 h-2.5 fill-current" /> : <Circle className="w-2.5 h-2.5 fill-brand-error" />}
             {isRecording ? t('stopCapture') : t('startCapture')}
           </button>
 
           <button 
             onClick={handleInstantClip}
             disabled={!isRecording}
-            className="flex items-center gap-2 px-4 py-1.5 bg-brand-primary text-black rounded-full font-bold text-xs hover:bg-brand-primary/90 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+            className="flex items-center gap-2 px-3 py-1 bg-brand-primary text-black rounded-full font-bold text-[10px] hover:bg-brand-primary/90 transition-all disabled:opacity-30"
           >
-            <RotateCcw className="w-3 h-3" />
+            <RotateCcw className="w-2.5 h-2.5" />
             {t('instantClip')}
           </button>
           
-          <div className="h-6 w-px bg-border-subtle mx-2" />
+          <div className="h-4 w-px bg-white/10 mx-1" />
           
-          <button className="flex items-center gap-2 px-4 py-1.5 bg-white text-black rounded-full font-bold text-xs hover:bg-white/90 transition-all">
-            <Download className="w-3 h-3" />
+          <button className="flex items-center gap-2 px-3 py-1 bg-white text-black rounded-full font-bold text-[10px] hover:bg-white/90 transition-all">
+            <Download className="w-2.5 h-2.5" />
             {t('export')}
           </button>
         </div>
@@ -960,7 +1043,7 @@ export default function App() {
       {/* Main Container */}
       <main className="flex-1 flex overflow-hidden">
         {/* Left Toolbar */}
-        <aside className="w-16 border-r border-border-subtle flex flex-col items-center py-6 gap-6 bg-bg-panel/20">
+        <aside className="w-14 border-r border-white/5 flex flex-col items-center py-4 gap-4 bg-black/20 shrink-0">
           <ToolIcon icon={<Scissors />} label={t('trim')} active={activeTool === 'Trim'} onClick={() => setActiveTool('Trim')} />
           <ToolIcon icon={<Type />} label={t('text')} active={activeTool === 'Text'} onClick={() => setActiveTool('Text')} />
           <ToolIcon icon={<Palette />} label={t('color')} active={activeTool === 'Color'} onClick={() => setActiveTool('Color')} />
@@ -974,23 +1057,34 @@ export default function App() {
           </div>
         </aside>
 
-        {/* Central Work Area */}
-        <section 
-          className="flex-1 flex flex-col bg-black/20"
-          onDragOver={handleDragOver}
-          onDrop={handleDrop}
-        >
-          {/* Preview Area */}
-          <div className="flex-1 relative flex items-center justify-center p-8 bg-black">
-            <div 
-              ref={previewContainerRef}
-              className={cn(
-                "relative bg-bg-card hardware-surface shadow-[0_0_100px_rgba(0,0,0,0.5)] flex items-center justify-center overflow-hidden transition-all duration-500",
-                exportRatio === '16:9' ? "aspect-video h-[60vh]" : 
-                exportRatio === '9:16' ? "aspect-[9/16] h-[75vh]" : 
-                "aspect-square h-[65vh]"
-              )}
-            >
+        {/* Main Workspace Section */}
+        <div className="flex-1 flex flex-col min-w-0 bg-[#080808] overflow-hidden">
+          {/* Working Area */}
+          <section 
+            className="flex-1 flex flex-col bg-black/20 overflow-hidden"
+            onDragOver={handleDragOver}
+            onDrop={handleDrop}
+          >
+            {/* Preview Section */}
+            <div className="flex-1 relative flex items-center justify-center p-4 bg-black overflow-hidden">
+              <div 
+                ref={previewContainerRef}
+                onWheel={(e) => {
+                  if (!useMouseWheelZoom || !selectedClipId) return;
+                  e.preventDefault();
+                  const zoomDelta = -e.deltaY * 0.1;
+                  setFilters(prev => ({
+                    ...prev,
+                    zoom: Math.max(10, Math.min(500, prev.zoom + zoomDelta))
+                  }));
+                }}
+                className={cn(
+                  "relative bg-bg-card hardware-surface shadow-2xl flex items-center justify-center overflow-hidden transition-all duration-500",
+                  exportRatio === '16:9' ? "aspect-video h-[50vh]" : 
+                  exportRatio === '9:16' ? "aspect-[9/16] h-[65vh]" : 
+                  "aspect-square h-[55vh]"
+                )}
+              >
               <AnimatePresence>
                 {(!selectedClipId && selectedLibraryItemId) && (
                    <motion.video
@@ -1106,6 +1200,7 @@ export default function App() {
                       setSelectedTextId(t.id);
                       setActiveTool('Text');
                     }}
+                    onDoubleClick={() => setEditingTextId(t.id)}
                     style={{
                       position: 'absolute',
                       left: '50%',
@@ -1114,7 +1209,10 @@ export default function App() {
                       y: t.y,
                       color: t.color,
                       fontSize: `${t.fontSize}px`,
-                      fontFamily: t.fontFamily === 'mono' ? 'JetBrains Mono, monospace' : t.fontFamily === 'serif' ? 'serif' : 'Inter, sans-serif',
+                      fontFamily: t.fontFamily.includes(',') ? t.fontFamily : 
+                        t.fontFamily === 'mono' ? 'JetBrains Mono, monospace' : 
+                        t.fontFamily === 'serif' ? 'serif' : 
+                        'Inter, sans-serif',
                       cursor: 'move',
                       pointerEvents: 'auto',
                       whiteSpace: 'pre-wrap',
@@ -1123,7 +1221,8 @@ export default function App() {
                     }}
                     className={cn(
                       "p-2 rounded-lg transition-shadow select-none",
-                      selectedTextId === t.id ? "ring-2 ring-brand-primary" : "hover:ring-1 hover:ring-white/20"
+                      selectedTextId === t.id ? "ring-2 ring-brand-primary" : "hover:ring-1 hover:ring-white/20",
+                      editingTextId === t.id && "ring-brand-primary bg-black/40"
                     )}
                   >
                     {t.type === 'sticker' ? (
@@ -1135,67 +1234,105 @@ export default function App() {
                         referrerPolicy="no-referrer"
                       />
                     ) : (
-                      t.text
+                      editingTextId === t.id ? (
+                        <textarea
+                          autoFocus
+                          value={t.text}
+                          onChange={(e) => updateTextOverlay(t.id, { text: e.target.value })}
+                          onBlur={() => setEditingTextId(null)}
+                          onKeyDown={(e) => {
+                             if (e.key === 'Enter' && !e.shiftKey) {
+                                e.preventDefault();
+                                setEditingTextId(null);
+                             }
+                          }}
+                          className="bg-transparent border-none outline-none text-center resize-none p-0 overflow-hidden min-w-[100px]"
+                          style={{ color: t.color, fontSize: 'inherit', fontFamily: 'inherit' }}
+                        />
+                      ) : t.text
                     )}
                   </motion.div>
                 ))}
               </div>
 
               {/* Status HUD Overlays */}
-              <div className="absolute top-4 left-4 flex flex-col gap-1">
-                 <HUDLabel label="REC" value={isRecording ? "ACTIVE" : "IDLE"} dot={isRecording} />
+              <div className="absolute top-3 left-3 flex flex-col gap-1">
+                 <HUDLabel label="REC" value={isRecording ? formatTime(recordingTime / 1000) : "IDLE"} dot={isRecording} />
                  <HUDLabel label="CLIP" value={selectedClipId ? selectedClipId.slice(0, 6) : "NONE"} />
               </div>
 
-              <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-6 bg-black/60 backdrop-blur px-6 py-3 rounded-full border border-white/10">
+              <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-4 bg-black/60 backdrop-blur px-5 py-2 rounded-full border border-white/5 shadow-xl">
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={() => {
+                      if (filters.volume !== 0) saveToHistory();
+                      setFilters({...filters, volume: filters.volume === 0 ? 80 : 0});
+                    }}
+                    className="text-white/60 hover:text-white transition-colors p-1"
+                    title={filters.volume === 0 ? t('unmute') : t('mute')}
+                  >
+                    {filters.volume === 0 ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+                  </button>
+                  <input 
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={filters.volume}
+                    onChange={(e) => setFilters({...filters, volume: parseInt(e.target.value)})}
+                    className="w-16 h-1 bg-white/20 rounded-lg appearance-none cursor-pointer accent-brand-primary"
+                  />
+                </div>
+                <div className="w-px h-3 bg-white/10" />
                 <button 
                   onClick={() => {
                     seekTo(0);
                   }}
-                  className="text-white/60 hover:text-white transition-colors"
+                  className="text-white/40 hover:text-white transition-colors"
                   title="Reset"
                 >
-                  <RotateCcw className="w-4 h-4 translate-y-[2px]" />
+                  <RotateCcw className="w-3.5 h-3.5 translate-y-[1px]" />
                 </button>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
                   <button 
                     onClick={() => seekTo(currentTime - 5)}
-                    className="text-white/60 hover:text-white transition-colors p-1"
+                    className="text-white/40 hover:text-white transition-colors p-1"
                     title="Skip Backward 5s"
                   >
                     <motion.div whileTap={{ scale: 0.9 }}>
-                      <SkipBack className="w-4 h-4" />
+                      <SkipBack className="w-3.5 h-3.5" />
                     </motion.div>
                   </button>
                   <button 
                     onClick={() => setIsPlaying(!isPlaying)}
-                    className="w-10 h-10 bg-white rounded-full flex items-center justify-center text-black hover:scale-110 active:scale-95 transition-all shadow-[0_0_20px_rgba(255,255,255,0.2)]"
+                    className="w-8 h-8 bg-white rounded-full flex items-center justify-center text-black hover:scale-110 active:scale-95 transition-all shadow-xl"
                   >
-                    {isPlaying ? <Pause className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 fill-current ml-0.5" />}
+                    {isPlaying ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current ml-0.5" />}
                   </button>
                   <button 
                     onClick={() => seekTo(currentTime + 5)}
-                    className="text-white/60 hover:text-white transition-colors p-1"
+                    className="text-white/40 hover:text-white transition-colors p-1"
                     title="Skip Forward 5s"
                   >
                     <motion.div whileTap={{ scale: 0.9 }}>
-                      <SkipForward className="w-4 h-4" />
+                      <SkipForward className="w-3.5 h-3.5" />
                     </motion.div>
                   </button>
                 </div>
-                <p className="font-mono text-xs tracking-widest text-brand-primary w-20 text-center">{formatTime(currentTime)}</p>
-                <button className="text-white/60 hover:text-white transition-colors"><Maximize2 className="w-4 h-4" /></button>
+                <p className="font-mono text-[9px] tracking-widest text-brand-primary min-w-[70px] text-center whitespace-nowrap">
+                  {formatTime(currentTime)} / {formatTime(totalDuration)}
+                </p>
+                <button className="text-white/40 hover:text-white transition-colors"><Maximize2 className="w-3.5 h-3.5" /></button>
               </div>
             </div>
           </div>
 
           {/* Timeline Section */}
           <div 
-            className="h-64 border-t border-border-subtle bg-bg-panel/40 flex flex-col relative"
+            className="h-56 border-t border-white/5 bg-black/40 flex flex-col relative shrink-0"
             onDragOver={handleDragOver}
             onDrop={handleDrop}
           >
-             <div className="h-8 border-b border-border-subtle flex items-center px-4 justify-between bg-black/20">
+             <div className="h-8 border-b border-white/5 flex items-center px-4 justify-between bg-black/20">
                 <div className="flex items-center gap-4">
                   <span className="text-[10px] font-bold font-mono text-white/40 uppercase tracking-widest">{t('timeline')}</span>
                   <div className="flex items-center gap-2 ml-4">
@@ -1211,12 +1348,29 @@ export default function App() {
                     >
                       {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
                     </button>
+                    <button 
+                      onClick={() => setIsLooping(!isLooping)} 
+                      className={cn(
+                        "p-1 rounded transition-colors flex items-center gap-1",
+                        isLooping ? "bg-brand-primary/10 text-brand-primary" : "text-white/40 hover:text-white"
+                      )}
+                      title="Toggle Loop"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span className="text-[8px] font-bold">LOOP</span>
+                    </button>
                     <span className="text-[9px] font-mono text-brand-primary tracking-tighter">
                       {formatTime(currentTime)} / {formatTime(totalDuration)}
                     </span>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
+                   {isLooping && (
+                     <div className="flex items-center gap-2 mr-4 bg-black/40 px-2 py-0.5 rounded border border-white/10">
+                        <span className="text-[8px] text-white/40">START: {formatTime(loopStart)}</span>
+                        <span className="text-[8px] text-white/40">END: {formatTime(loopEnd)}</span>
+                     </div>
+                   )}
                    <button className="p-1 hover:bg-white/10 rounded"><Plus className="w-4 h-4 text-white/60" /></button>
                 </div>
              </div>
@@ -1229,9 +1383,34 @@ export default function App() {
                  const rect = e.currentTarget.getBoundingClientRect();
                  const x = e.clientX - rect.left - 96;
                  if (x >= 0) {
-                   setIsPlaying(false);
                    const timelineWidth = e.currentTarget.offsetWidth - 96;
-                   seekTo((x / timelineWidth) * totalDuration);
+                   const targetTime = (x / timelineWidth) * totalDuration;
+
+                   // Check if clicked near loop markers
+                   const loopStartPos = (loopStart / totalDuration) * timelineWidth;
+                   const loopEndPos = (loopEnd / totalDuration) * timelineWidth;
+                   
+                   const isNearStart = Math.abs(x - loopStartPos) < 10;
+                   const isNearEnd = Math.abs(x - loopEndPos) < 10;
+
+                   if (isLooping && (isNearStart || isNearEnd)) {
+                      const handleMouseMove = (moveEvent: MouseEvent) => {
+                        const moveX = moveEvent.clientX - rect.left - 96;
+                        const newTime = (Math.max(0, moveX) / timelineWidth) * totalDuration;
+                        if (isNearStart) setLoopStart(Math.min(newTime, loopEnd - 0.1));
+                        else setLoopEnd(Math.max(newTime, loopStart + 0.1));
+                      };
+                      const handleMouseUp = () => {
+                        window.removeEventListener('mousemove', handleMouseMove);
+                        window.removeEventListener('mouseup', handleMouseUp);
+                      };
+                      window.addEventListener('mousemove', handleMouseMove);
+                      window.addEventListener('mouseup', handleMouseUp);
+                      return;
+                   }
+
+                   setIsPlaying(false);
+                   seekTo(targetTime);
                    
                    const handleMouseMove = (moveEvent: MouseEvent) => {
                      const moveX = moveEvent.clientX - rect.left - 96;
@@ -1248,6 +1427,36 @@ export default function App() {
                  }
                }}
              >
+                {/* Loop Region Highlight */}
+                {isLooping && (
+                  <div 
+                    className="absolute top-0 bottom-0 bg-brand-primary/5 border-x border-brand-primary/20 pointer-events-none"
+                    style={{ 
+                      left: `${(loopStart / totalDuration) * 100}%`, 
+                      width: `${((loopEnd - loopStart) / totalDuration) * 100}%`,
+                      marginLeft: '96px'
+                    }}
+                  />
+                )}
+
+                {/* Loop Markers */}
+                {isLooping && (
+                  <>
+                    <div 
+                      className="absolute top-0 bottom-0 w-px bg-brand-primary/60 z-40 cursor-ew-resize"
+                      style={{ left: `${(loopStart / totalDuration) * 100}%`, marginLeft: '96px' }}
+                    >
+                      <div className="w-2 h-4 bg-brand-primary rounded-sm -translate-x-1 mt-8 opacity-50" />
+                    </div>
+                    <div 
+                      className="absolute top-0 bottom-0 w-px bg-brand-primary/60 z-40 cursor-ew-resize"
+                      style={{ left: `${(loopEnd / totalDuration) * 100}%`, marginLeft: '96px' }}
+                    >
+                      <div className="w-2 h-4 bg-brand-primary rounded-sm -translate-x-1 mt-8 opacity-50" />
+                    </div>
+                  </>
+                )}
+
                 {/* Playhead */}
                 <div 
                   className="absolute top-0 bottom-0 w-px bg-brand-primary z-50 timeline-marker cursor-ew-resize group" 
@@ -1293,15 +1502,16 @@ export default function App() {
              </div>
           </div>
         </section>
+      </div>
 
-        {/* Right Properties Panel */}
-        <aside className="w-72 border-l border-border-subtle bg-bg-panel/10 flex flex-col">
-           <div className="p-6">
-              <h3 className="text-xs font-bold uppercase tracking-[0.2em] text-white/40 mb-6">
+      {/* Right Properties Panel */}
+        <aside className="w-64 border-l border-white/5 bg-black/10 flex flex-col shrink-0">
+           <div className="p-4 flex-1 overflow-y-auto custom-scrollbar">
+              <h3 className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/30 mb-4 px-1">
                 {(translations[language][activeTool.toLowerCase() as keyof TranslationSet] || activeTool)} {t('details')}
               </h3>
               
-              <div className="space-y-8">
+              <div className="space-y-6">
                  {activeTool === 'Trim' && (
                     <>
                        <div className="flex items-center justify-between mb-4">
@@ -1521,6 +1731,40 @@ export default function App() {
 
                   {activeTool === 'Config' && (
                     <div className="space-y-6">
+                       <label className="text-[10px] font-bold uppercase tracking-widest text-white/40">{t('replayDuration')}</label>
+                       <div className="flex bg-black/40 p-1 rounded-xl border border-white/5">
+                          {[60000, 180000].map((duration) => (
+                             <button
+                                key={duration}
+                                onClick={() => setReplayBufferDuration(duration)}
+                                className={cn(
+                                   "flex-1 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all",
+                                   replayBufferDuration === duration ? "bg-white text-black" : "text-white/40 hover:text-white"
+                                )}
+                             >
+                                {duration / 60000} MIN
+                             </button>
+                          ))}
+                       </div>
+
+                       <div className="flex items-center justify-between">
+                          <label className="text-[10px] font-bold uppercase tracking-widest text-white/40">{t('wheelZoom')}</label>
+                          <button 
+                            onClick={() => setUseMouseWheelZoom(!useMouseWheelZoom)}
+                            className={cn(
+                              "w-8 h-4 rounded-full relative transition-colors",
+                              useMouseWheelZoom ? "bg-brand-primary" : "bg-white/10"
+                            )}
+                          >
+                            <div className={cn(
+                              "absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all",
+                              useMouseWheelZoom ? "right-0.5" : "left-0.5"
+                            )} />
+                          </button>
+                       </div>
+
+                       <div className="h-px bg-border-subtle my-2" />
+
                        <label className="text-[10px] font-bold uppercase tracking-widest text-white/40">{t('language')}</label>
                        <div className="grid grid-cols-2 gap-2">
                           {[
@@ -1568,7 +1812,44 @@ export default function App() {
                        </div>
 
                        <div className="h-px bg-border-subtle my-4" />
-                       <label className="text-[10px] font-bold uppercase tracking-widest text-white/40">{t('interfaceColor')}</label>
+                                               <div className="h-px bg-border-subtle my-4" />
+                        <label className="text-[10px] font-bold uppercase tracking-widest text-white/40">{t('showOverlay')}</label>
+                        <div className="flex items-center justify-between mt-2">
+                           <span className="text-[10px] text-white/60">{t('floatingControls')}</span>
+                           <button 
+                             onClick={() => setShowOverlay(!showOverlay)}
+                             className={cn(
+                               "w-8 h-4 rounded-full relative transition-colors",
+                               showOverlay ? "bg-brand-primary" : "bg-white/10"
+                             )}
+                           >
+                             <div className={cn(
+                               "absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all",
+                               showOverlay ? "right-0.5" : "left-0.5"
+                             )} />
+                           </button>
+                        </div>
+                        
+                        {showOverlay && (
+                          <div className="flex items-center justify-between mt-4 animate-in fade-in slide-in-from-top-2">
+                             <span className="text-[10px] text-white/60">{t('showTimer')}</span>
+                             <button 
+                               onClick={() => setShowOverlayTimer(!showOverlayTimer)}
+                               className={cn(
+                                 "w-8 h-4 rounded-full relative transition-colors",
+                                 showOverlayTimer ? "bg-brand-primary" : "bg-white/10"
+                               )}
+                             >
+                               <div className={cn(
+                                 "absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all",
+                                 showOverlayTimer ? "right-0.5" : "left-0.5"
+                               )} />
+                             </button>
+                          </div>
+                        )}
+
+                        <div className="h-px bg-border-subtle my-4" />
+                        <label className="text-[10px] font-bold uppercase tracking-widest text-white/40">{t('interfaceColor')}</label>
                        <div className="flex items-center gap-4 bg-black/40 p-3 rounded-xl border border-white/5 mt-2">
                           <div 
                              className="w-10 h-10 rounded-lg border border-white/10 shrink-0" 
@@ -1594,7 +1875,7 @@ export default function App() {
                           {[
                             { id: 'play', key: 'Space', desc: t('playPause') },
                             { id: 'split', key: 'S', desc: t('split') },
-                            { id: 'instant', key: 'I', desc: t('instant') },
+                            { id: 'instant', key: instantClipKey.toUpperCase(), desc: t('instant'), custom: true },
                             { id: 'record', key: recordKey.toUpperCase(), desc: t('shortcutRecord'), custom: true },
                             { id: 'voice', key: voiceKey.toUpperCase(), desc: t('shortcutVoice'), custom: true },
                             { id: 'undo', key: 'Ctrl+Z', desc: t('undo') },
@@ -1605,7 +1886,7 @@ export default function App() {
                                <div className="flex items-center gap-2">
                                  {shortcut.custom && (
                                    <button 
-                                     onClick={() => setRebindingKey(shortcut.id as 'record' | 'voice')}
+                                     onClick={() => setRebindingKey(shortcut.id as any)}
                                      className="text-brand-primary/60 hover:text-brand-primary"
                                    >
                                      {t('customizeShortcut')}
@@ -1617,7 +1898,7 @@ export default function App() {
                                      ? "bg-brand-primary/20 border-brand-primary text-brand-primary animate-pulse" 
                                      : "bg-white/5 border-white/10 text-white/60"
                                  )}>
-                                   {rebindingKey === shortcut.id ? t('pressAnyKey') : (shortcut.id === 'undo' || shortcut.id === 'redo' ? (shortcut.id === 'undo' ? 'Ctrl+Z' : 'Ctrl+Y') : (shortcut.id === 'record' ? recordKey.toUpperCase() : (shortcut.id === 'voice' ? voiceKey.toUpperCase() : shortcut.key)))}
+                                   {rebindingKey === shortcut.id ? t('pressAnyKey') : shortcut.key}
                                  </span>
                                </div>
                             </div>
@@ -1657,16 +1938,28 @@ export default function App() {
                                 </div>
                               </div>
                               <div className="space-y-2">
-                                <label className="text-[10px] font-bold uppercase tracking-widest text-white/40">Font</label>
-                                <select 
-                                  value={activeText.fontFamily}
-                                  onChange={(e) => updateTextOverlay(activeText.id, { fontFamily: e.target.value as any })}
-                                  className="w-full bg-black/40 border border-white/10 rounded px-2 py-1 text-xs"
-                                >
-                                  <option value="sans">Sans</option>
-                                  <option value="mono">Mono</option>
-                                  <option value="serif">Serif</option>
-                                </select>
+                                <div className="flex items-center justify-between">
+                                  <label className="text-[10px] font-bold uppercase tracking-widest text-white/40">{t('font')}</label>
+                                  <label className="cursor-pointer text-brand-primary hover:text-white transition-colors" title="Add External Font">
+                                     <PlusCircle className="w-3 h-3" />
+                                     <input type="file" accept=".ttf,.otf,.woff,.woff2" className="hidden" onChange={handleFontUpload} />
+                                  </label>
+                                </div>
+                                <div className="grid grid-cols-1 gap-1 max-h-32 overflow-y-auto custom-scrollbar pr-1 mt-1 bg-black/20 rounded p-1">
+                                   {[...FONT_OPTIONS, ...customFonts].map((f) => (
+                                      <button 
+                                         key={f}
+                                         onClick={() => updateTextOverlay(activeText.id, { fontFamily: f })}
+                                         className={cn(
+                                            "text-left px-2 py-1.5 rounded text-[10px] transition-all",
+                                            activeText.fontFamily === f ? "bg-brand-primary text-black" : "text-white/40 hover:bg-white/5"
+                                         )}
+                                         style={{ fontFamily: f }}
+                                      >
+                                         {f.split(',')[0]}
+                                      </button>
+                                   ))}
+                                </div>
                               </div>
                            </div>
 
@@ -1977,7 +2270,7 @@ export default function App() {
                       </div>
 
                       <PropertySlider 
-                        label="Master Volume" 
+                        label={t('masterVolume')} 
                         value={filters.volume} 
                         onChange={(val) => {
                           if (filters.volume !== val) saveToHistory();
@@ -2036,6 +2329,75 @@ export default function App() {
            </div>
         </aside>
       </main>
+
+      {/* Floating Control Overlay */}
+      <AnimatePresence>
+        {showOverlay && (
+          <motion.div 
+            initial={{ y: 100, opacity: 0, x: '-50%' }}
+            animate={{ y: 0, opacity: 1, x: '-50%' }}
+            exit={{ y: 100, opacity: 0, x: '-50%' }}
+            drag
+            dragConstraints={{ left: -window.innerWidth/2, right: window.innerWidth/2, top: -window.innerHeight, bottom: 0 }}
+            className="fixed bottom-10 left-1/2 z-[9999] cursor-move"
+          >
+            <div className="bg-black/80 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl px-3 py-1.5 flex items-center gap-3">
+              <div className="flex items-center gap-1.5">
+                <button 
+                  onClick={isRecording ? stopCapture : startCapture}
+                  className={cn(
+                    "w-7 h-7 rounded-full flex items-center justify-center transition-all",
+                    isRecording ? "bg-brand-error text-white recording-glow" : "bg-white/10 text-white hover:bg-white/20"
+                  )}
+                  title={isRecording ? t('stopCapture') : t('startCapture')}
+                >
+                  {isRecording ? <Square className="w-2.5 h-2.5 fill-current" /> : <Circle className="w-2.5 h-2.5 fill-brand-error" />}
+                </button>
+                <button 
+                  onClick={handleInstantClip}
+                  disabled={!isRecording}
+                  className="w-7 h-7 rounded-full bg-brand-primary text-black flex items-center justify-center hover:bg-brand-primary/90 transition-all disabled:opacity-30"
+                  title={t('instantClip')}
+                >
+                  <RotateCcw className="w-2.5 h-2.5" />
+                </button>
+              </div>
+
+              {showOverlayTimer && isRecording && (
+                <div className="flex items-center gap-1.5 px-2 py-0.5 bg-white/5 rounded-full border border-white/5">
+                  <div className="w-1 h-1 bg-brand-error rounded-full animate-pulse" />
+                  <span className="font-mono text-[10px] font-bold text-white/80">{formatTime(recordingTime / 1000)}</span>
+                </div>
+              )}
+
+              <div className="w-px h-5 bg-white/10" />
+              
+              <div className="flex items-center gap-0.5">
+                <button 
+                  onClick={() => setIsPlaying(!isPlaying)}
+                  className="w-7 h-7 rounded-lg flex items-center justify-center text-white/60 hover:text-white"
+                >
+                  {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+                </button>
+                <button 
+                  onClick={splitClip}
+                  className="w-7 h-7 rounded-lg flex items-center justify-center text-white/60 hover:text-white"
+                  title={t('split')}
+                >
+                  <Scissors className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              <div className="group relative">
+                <div className="w-1 h-4 bg-white/10 rounded-full cursor-help group-hover:bg-brand-primary transition-colors" />
+                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-black text-[8px] font-bold uppercase tracking-widest rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap border border-white/10">
+                  {t('dragToReposition')}
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -2046,12 +2408,12 @@ function ToolIcon({ icon, label, active = false, onClick }: { icon: React.ReactN
     <button 
       onClick={onClick}
       className={cn(
-        "group relative flex flex-col items-center gap-1 p-3 rounded-xl transition-all",
+        "group relative flex flex-col items-center gap-1 p-2.5 rounded-xl transition-all",
         active ? "bg-white text-black" : "text-white/40 hover:bg-white/5 hover:text-white"
       )}
     >
-      {React.cloneElement(icon as React.ReactElement, { className: "w-5 h-5 transition-transform group-hover:scale-110" })}
-      <span className="text-[8px] font-bold uppercase tracking-widest absolute -right-12 bg-black px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50">{label}</span>
+      {React.cloneElement(icon as React.ReactElement, { className: "w-4.5 h-4.5 transition-transform group-hover:scale-110" })}
+      <span className="text-[8px] font-bold uppercase tracking-widest absolute -right-12 bg-black px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50 shadow-xl border border-white/10">{label}</span>
     </button>
   );
 }

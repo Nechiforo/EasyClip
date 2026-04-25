@@ -5,21 +5,30 @@ interface BufferChunk {
   timestamp: number;
 }
 
-export function useReplayBuffer(maxDurationMs: number = 60000) { // Default 60s buffer
+export function useReplayBuffer(maxDurationMs: number = 60000) { // maxDurationMs passed from component state
   const [isRecording, setIsRecording] = useState(false);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const chunksRef = useRef<BufferChunk[]>([]);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const maxDurationRef = useRef(maxDurationMs);
+
+  // Keep ref in sync for the callback
+  maxDurationRef.current = maxDurationMs;
 
   const startCapture = useCallback(async () => {
     try {
       const displayStream = await navigator.mediaDevices.getDisplayMedia({
-        video: { frameRate: 60 },
-        audio: true,
+        video: { frameRate: 60, width: { ideal: 1920 }, height: { ideal: 1080 } },
+        audio: { 
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false
+        },
       });
 
       setStream(displayStream);
       setIsRecording(true);
+      chunksRef.current = []; // Clear previous buffer on new start
 
       const recorder = new MediaRecorder(displayStream, {
         mimeType: 'video/webm; codecs=vp9',
@@ -30,15 +39,15 @@ export function useReplayBuffer(maxDurationMs: number = 60000) { // Default 60s 
           const now = Date.now();
           chunksRef.current.push({ blob: event.data, timestamp: now });
 
-          // Prune old chunks
-          const cutoff = now - maxDurationMs;
+          // Prune old chunks using the latest duration setting
+          const cutoff = now - maxDurationRef.current;
           while (chunksRef.current.length > 0 && chunksRef.current[0].timestamp < cutoff) {
             chunksRef.current.shift();
           }
         }
       };
 
-      // We request data every 1 second to keep the buffer resolution high
+      // Request data every 1 second
       recorder.start(1000);
       mediaRecorderRef.current = recorder;
 
@@ -49,7 +58,7 @@ export function useReplayBuffer(maxDurationMs: number = 60000) { // Default 60s 
     } catch (err) {
       console.error("Error starting capture:", err);
     }
-  }, [maxDurationMs]);
+  }, []);
 
   const stopCapture = useCallback(() => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
@@ -65,6 +74,8 @@ export function useReplayBuffer(maxDurationMs: number = 60000) { // Default 60s 
 
   const getBufferBlob = useCallback(() => {
     if (chunksRef.current.length === 0) return null;
+    
+    // Combine all chunks in the current buffer
     return new Blob(chunksRef.current.map(c => c.blob), { type: 'video/webm' });
   }, []);
 
