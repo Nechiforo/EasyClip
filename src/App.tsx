@@ -175,14 +175,97 @@ export default function App() {
         setCurrentTime(prev => {
           if (prev >= totalDuration) {
             setIsPlaying(false);
-            return totalDuration;
+            return 0; // Loop or stop at end
           }
-          return prev + 0.1; // Increment by 100ms
+          return prev + 0.033; // Increment by ~30fps for smoother motion
         });
-      }, 100);
+      }, 33);
     }
     return () => clearInterval(interval);
   }, [isPlaying, totalDuration]);
+
+  // Sync video elements with global currentTime and isPlaying
+  const videoRefs = useRef<Record<string, HTMLVideoElement>>({});
+  
+  useEffect(() => {
+    // Collect all active clip IDs first to clean up old refs
+    const activeClipIds = new Set(clips.map(c => c.id));
+    if (selectedLibraryItemId) activeClipIds.add(`lib-${selectedLibraryItemId}`);
+    
+    // Clean up refs for removed clips
+    Object.keys(videoRefs.current).forEach(id => {
+      if (!activeClipIds.has(id)) delete videoRefs.current[id];
+    });
+
+    Object.entries(videoRefs.current).forEach(([id, unknownVideo]) => {
+      const video = unknownVideo as HTMLVideoElement;
+      if (!video) return;
+      
+      // Determine what time this specific video should be at
+      let targetTime = currentTime;
+      
+      if (id.startsWith('lib-')) {
+        targetTime = currentTime;
+      } else {
+        const clip = clips.find(c => c.id === id);
+        if (clip) {
+          // Time relative to clip start
+          targetTime = currentTime - clip.startTime;
+          
+          // Handle bounds
+          if (targetTime < 0 || targetTime > clip.duration) {
+            if (!video.paused) video.pause();
+            video.style.opacity = '0';
+            return;
+          } else {
+            video.style.opacity = '1';
+          }
+        }
+      }
+
+      if (isPlaying) {
+        if (video.paused) video.play().catch(() => {});
+      } else {
+        if (!video.paused) video.pause();
+      }
+      
+      // Sync if more than 50ms off
+      if (Math.abs(video.currentTime - targetTime) > 0.05) {
+        video.currentTime = targetTime;
+      }
+    });
+  }, [currentTime, isPlaying, clips, selectedLibraryItemId]);
+
+  // Global Drag and Drop
+  useEffect(() => {
+    const handleGlobalDragOver = (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+
+    const handleGlobalDrop = async (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      const files = Array.from(e.dataTransfer?.files || []);
+      if (files.length > 0) {
+        // Reuse handleDrop logic
+        const dropEvent = {
+          preventDefault: () => {},
+          dataTransfer: { files }
+        } as unknown as React.DragEvent;
+        handleDrop(dropEvent);
+      }
+    };
+
+    window.addEventListener('dragover', handleGlobalDragOver);
+    window.addEventListener('drop', handleGlobalDrop);
+
+    return () => {
+      window.removeEventListener('dragover', handleGlobalDragOver);
+      window.removeEventListener('drop', handleGlobalDrop);
+    };
+  }, [currentTime]); // currentTime dependency to ensure handleDrop has access to current state if needed
 
   const seekTo = (time: number) => {
     const newTime = Math.max(0, Math.min(time, totalDuration));
@@ -916,6 +999,7 @@ export default function App() {
                       animate={{ opacity: 1 }}
                       exit={{ opacity: 0 }}
                       src={libraryItems.find(i => i.id === selectedLibraryItemId)?.url}
+                      ref={(el) => { if (el) videoRefs.current[`lib-${selectedLibraryItemId}`] = el; }}
                       className="absolute inset-0 w-full h-full object-cover"
                       style={{ 
                         filter: `brightness(${filters.brightness}%) contrast(${filters.contrast}%) saturate(${filters.saturation}%) hue-rotate(${filters.hue}deg) sepia(${filters.sepia}%) grayscale(${filters.grayscale}%) blur(${(filters.blur + filters.smooth * 0.3) / 5}px)`,
@@ -967,6 +1051,22 @@ export default function App() {
                       transition={variants.transition}
                       {...(variants as any).exitTransition ? { exit: { ...variants.exit, transition: (variants as any).exitTransition } } : {}}
                       src={clip.url}
+                      ref={(el) => { if (el) videoRefs.current[clip.id] = el; }}
+                      drag
+                      dragConstraints={previewContainerRef}
+                      onDragStart={() => saveToHistory()}
+                      onDrag={(_, info) => {
+                        const rect = previewContainerRef.current?.getBoundingClientRect();
+                        if (rect && isActive) {
+                          const deltaX = (info.delta.x / rect.width) * 100;
+                          const deltaY = (info.delta.y / rect.height) * 100;
+                          setFilters(prev => ({ 
+                            ...prev, 
+                            offsetX: prev.offsetX + deltaX, 
+                            offsetY: prev.offsetY + deltaY 
+                          }));
+                        }
+                      }}
                       className={cn(
                         "absolute transition-all object-cover",
                         layout === 'full' ? "w-full h-full inset-0" : 
@@ -1125,37 +1225,37 @@ export default function App() {
              <div 
                ref={timelineRef}
                className="flex-1 overflow-x-auto overflow-y-hidden custom-scrollbar relative"
-               onClick={(e) => {
-                 if ((e.target as HTMLElement).closest('.timeline-marker')) return;
+               onMouseDown={(e) => {
                  const rect = e.currentTarget.getBoundingClientRect();
-                 const x = e.clientX - rect.left - 96; // 96 is the sidebar width (w-24)
+                 const x = e.clientX - rect.left - 96;
                  if (x >= 0) {
+                   setIsPlaying(false);
                    const timelineWidth = e.currentTarget.offsetWidth - 96;
                    seekTo((x / timelineWidth) * totalDuration);
+                   
+                   const handleMouseMove = (moveEvent: MouseEvent) => {
+                     const moveX = moveEvent.clientX - rect.left - 96;
+                     seekTo((Math.max(0, moveX) / timelineWidth) * totalDuration);
+                   };
+                   
+                   const handleMouseUp = () => {
+                     window.removeEventListener('mousemove', handleMouseMove);
+                     window.removeEventListener('mouseup', handleMouseUp);
+                   };
+                   
+                   window.addEventListener('mousemove', handleMouseMove);
+                   window.addEventListener('mouseup', handleMouseUp);
                  }
                }}
              >
                 {/* Playhead */}
-                <motion.div 
+                <div 
                   className="absolute top-0 bottom-0 w-px bg-brand-primary z-50 timeline-marker cursor-ew-resize group" 
                   style={{ left: `${(currentTime / totalDuration) * 100}%`, marginLeft: '96px' }}
-                  drag="x"
-                  dragConstraints={timelineRef}
-                  dragMomentum={false}
-                  dragElastic={0}
-                  onDragStart={() => setIsPlaying(false)}
-                  onDrag={(_, info) => {
-                    const rect = timelineRef.current?.getBoundingClientRect();
-                    if (rect) {
-                      const timelineWidth = rect.width - 96;
-                      const x = _.clientX - rect.left - 96;
-                      seekTo((x / timelineWidth) * totalDuration);
-                    }
-                  }}
                 >
-                   <div className="w-3 h-3 bg-brand-primary rotate-45 -translate-x-[6px] -translate-y-[6px] shadow-[0_0_10px_rgba(0,255,0,0.5)]" />
-                   <div className="absolute top-0 bottom-0 -left-2 -right-2 hidden group-hover:block" />
-                </motion.div>
+                   <div className="w-3 h-3 bg-brand-primary rotate-45 -translate-x-[6px] -translate-y-[6px] shadow-[0_0_10px_rgba(0,255,0,0.5)] group-hover:scale-125 transition-transform" />
+                   <div className="absolute top-0 bottom-0 -left-2 -right-2" />
+                </div>
 
                 <div className="flex flex-col h-full py-4 gap-2">
                    <TimelineTrack 
