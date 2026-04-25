@@ -20,6 +20,8 @@ export interface AudioClip {
   duration: number;
   startTime: number;
   volume: number;
+  playbackRate?: number;
+  reverb?: boolean;
 }
 
 export interface TimelineAudioTrack {

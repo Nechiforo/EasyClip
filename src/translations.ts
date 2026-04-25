@@ -91,8 +91,15 @@ export interface TranslationSet {
   unmute: string;
   showOverlay: string;
   showTimer: string;
-  floatingControls: string;
+  floatingControls?: string;
   dragToReposition: string;
+  deleteClip?: string;
+  addAudioTrack?: string;
+  reverbEffect?: string;
+  slowMotion?: string;
+  fastMotion?: string;
+  normalSpeed?: string;
+  removeTrack?: string;
 }
 
 // Russian split out for brevity in the main object
@@ -272,7 +279,14 @@ export const translations: Record<LanguageCode, TranslationSet> = {
     showOverlay: 'Control Overlay',
     showTimer: 'Show Timer in Overlay',
     floatingControls: 'Floating Controls',
-    dragToReposition: 'DRAG TO REPOSITION'
+    dragToReposition: 'DRAG TO REPOSITION',
+    deleteClip: 'Delete Clip',
+    addAudioTrack: 'Add Audio Track',
+    reverbEffect: 'Reverb Effect',
+    slowMotion: 'Slow Motion',
+    fastMotion: 'Fast Motion',
+    normalSpeed: 'Normal Speed',
+    removeTrack: 'Remove Track'
   },
   zh: {
     title: 'EasyClip',
@@ -446,7 +460,16 @@ export const translations: Record<LanguageCode, TranslationSet> = {
     mute: 'म्यूट करें',
     unmute: 'अनम्यूट करें',
     showOverlay: 'कंट्रोल ओवरले',
-    showTimer: 'ओवरले में टाइमर दिखाएं'
+    showTimer: 'ओवरले में टाइमर दिखाएं',
+    floatingControls: 'Floating Controls',
+    dragToReposition: 'DRAG TO REPOSITION',
+    deleteClip: 'Delete Clip',
+    addAudioTrack: 'Add Audio Track',
+    reverbEffect: 'Reverb Effect',
+    slowMotion: 'Slow Motion',
+    fastMotion: 'Fast Motion',
+    normalSpeed: 'Normal Speed',
+    removeTrack: 'Remove Track'
   },
   es: {
     title: 'EasyClip',
@@ -535,7 +558,14 @@ export const translations: Record<LanguageCode, TranslationSet> = {
     showOverlay: 'Control de Superposición',
     showTimer: 'Mostrar Temporizador',
     floatingControls: 'Controles Flotantes',
-    dragToReposition: 'ARRASTRAR PARA REUBICAR'
+    dragToReposition: 'ARRASTRAR PARA REUBICAR',
+    deleteClip: 'Borrar Clip',
+    addAudioTrack: 'Agregar Pista de Audio',
+    reverbEffect: 'Efecto Reverberación',
+    slowMotion: 'Ralentizar',
+    fastMotion: 'Acelerar',
+    normalSpeed: 'Velocidad Normal',
+    removeTrack: 'Borrar Pista'
   },
   ar: {
     title: 'EasyClip',
@@ -796,7 +826,16 @@ export const translations: Record<LanguageCode, TranslationSet> = {
     mute: 'নিঃশব্দ করুন',
     unmute: 'শব্দ শুনুন',
     showOverlay: 'কন্ট্রোল ওভারলে',
-    showTimer: 'ওভারলে টাইমার দেখান'
+    showTimer: 'ওভারলে টাইমার দেখান',
+    floatingControls: 'Floating Controls',
+    dragToReposition: 'DRAG TO REPOSITION',
+    deleteClip: 'Delete Clip',
+    addAudioTrack: 'Add Audio Track',
+    reverbEffect: 'Reverb Effect',
+    slowMotion: 'Slow Motion',
+    fastMotion: 'Fast Motion',
+    normalSpeed: 'Normal Speed',
+    removeTrack: 'Remove Track'
   },
   pt: {
     title: 'EasyClip',
